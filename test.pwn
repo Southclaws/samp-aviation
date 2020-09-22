@@ -119,9 +119,11 @@ public OnPlayerUpdate(playerid) {
     GetVehicleZAngle(vehicleid, heading);
     GetEulerFromQuat(qw, qx, qy, qz, pitch, roll, yaw);
 
-    // adjust heading angles so they are in the same range (-180..180)
-    heading = localiseHeadingAngle(heading);
-    new Float:target_heading = localiseHeadingAngle(TargetHeading);
+    // in order to avoid any complications and additional comparison branches
+    // regarding angles, the target heading is used to calculate an offset from
+    // the heading. This number will always be in the range -180..180 which
+    // means all comparisons are done in relative terms rather than abstract.
+    new Float:target_heading_offset = localiseHeadingAngle(GetAbsoluteAngle(heading - TargetHeading));
 
     new
         Float:pitch_velocity,
@@ -234,27 +236,28 @@ public OnPlayerUpdate(playerid) {
 
     // Heading is treated similarly to the above two values. There's a capture
     // window, a progress value from -1.0 to 1.0 which is used to calculate
-    // a target orientation of some sort. There is a slight difference here and
-    // that is that the values are inverted. This is because, for some odd
-    // reason, the game engine treats east as 270.0 and west as 90.0 degrees.
-    // Aside from that, the linear interpolation here is the exact same as the
-    // above values. When the plane is heading towards its target, the
-    // `heading_progress` value is zero. If it's outside the capture window left
-    // it's 1.0 and if it's outside the capture window right, it's -1.0 and all
-    // values in between are interpolated long a linear curve.
+    // a target orientation of some sort. The difference here is the comparisons
+    // are not using absolute value comparisons but just the difference between
+    // the heading and the target heading (target_heading_offset). The capture
+    // windows are also calculated differently and the linear interpolation is
+    // just a basic mapping from the heading capture window range to -1..1.
+    // So, the result of this is: when the plane is heading towards its target,
+    // the `heading_progress` value is zero. If it's outside the capture window
+    // left it's 1.0 and if it's outside the capture window right, it's -1.0 and
+    // all values in between are interpolated long a linear curve.
 
-    new Float:heading_window_low = target_heading - HEADING_CAPTURE_WINDOW;
-    new Float:heading_window_high = target_heading + HEADING_CAPTURE_WINDOW;
+    new Float:heading_window_low = HEADING_CAPTURE_WINDOW - target_heading_offset;
+    new Float:heading_window_high = HEADING_CAPTURE_WINDOW + target_heading_offset;
     new Float:heading_progress = 0.0;
-    if(heading < target_heading) {
-        if(heading > heading_window_low) {
-            heading_progress = -(((-1.0) / (target_heading - heading_window_low)) * (heading - target_heading));
+    if(target_heading_offset < 0.0) {
+        if(target_heading_offset > -HEADING_CAPTURE_WINDOW) {
+            heading_progress = target_heading_offset / HEADING_CAPTURE_WINDOW;
         } else {
             heading_progress = -1.0;
         }
     } else {
-        if(heading < heading_window_high) {
-            heading_progress = (((-1.0) / (target_heading - heading_window_high)) * (heading - target_heading));
+        if(target_heading_offset < HEADING_CAPTURE_WINDOW) {
+            heading_progress = target_heading_offset / HEADING_CAPTURE_WINDOW;
         } else {
             heading_progress = 1.0;
         }
@@ -350,7 +353,7 @@ public OnPlayerUpdate(playerid) {
         \
         Pitch V %f Roll V %f Yaw V %f~n~\
         \
-        Heading: %f~n~ Target: %f~n~\
+        Heading: %f Target: %f~n~\
         Alt %f Target: %d~n~\
         VS %f Target: %f~n~\
         ",
@@ -373,7 +376,7 @@ public OnPlayerUpdate(playerid) {
 
         pitch_velocity, roll_velocity, yaw_velocity,
 
-        heading, target_heading,
+        heading, target_heading_offset,
         altitude, TargetAlt,
         vertical_speed, TargetVerticalSpeed);
     PlayerTextDrawSetString(playerid, MessageTextdraw[playerid], str);
