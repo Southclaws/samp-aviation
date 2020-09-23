@@ -48,3 +48,7 @@ samp.ban
 #
 
 *.sublime-workspace
+
+# vscode settings
+
+.vscode/
