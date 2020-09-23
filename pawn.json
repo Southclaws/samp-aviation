@@ -5,6 +5,7 @@
 	"output": "test.amx",
 	"dependencies": [
 		"sampctl/samp-stdlib",
+		"pawn-lang/YSI-Includes",
 		"sampctl/rotations.inc",
 		"Y-Less/sscanf:2.10.2-r2",
 		"Zeex/samp-plugin-crashdetect:v4.20",
