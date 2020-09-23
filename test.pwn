@@ -79,7 +79,7 @@ public OnPlayerConnect(playerid) {
     PlayerTextDrawShow(playerid, MessageTextdraw[playerid]);
 
     SetTimerEx("ApplyTurbulence", 1000, true, "d", playerid);
-    SetTimerEx("AngularVelocityTick", 1000, true, "d", playerid);
+    SetTimerEx("AngularVelocityTick", 100, true, "d", playerid);
 }
 
 // Random velocity nudges in all directions. Very basic turbulence to add a bit
@@ -318,16 +318,16 @@ public OnPlayerUpdate(playerid) {
     // This is just some very basic wobble to add some extra unexpected
     // rotations into the mix. It makes the AP look a little less robotic and
     // slightly more realistic!
-    new Float:pitch_turbulence_multiplier = frandom(0.0005, -0.0005);
-    new Float:roll_turbulence_multiplier = frandom(0.0005, -0.0005);
-    new Float:yaw_turbulence_multiplier = frandom(0.0005, -0.0005);
+    new Float:pitch_turbulence = frandom(0.0005, -0.0005);
+    new Float:roll_turbulence = frandom(0.0005, -0.0005);
+    new Float:yaw_turbulence = frandom(0.0005, -0.0005);
 
     // Auto pilot
     if(AP) {
         SetVehicleLocalAngularVelocity(vehicleid,
-            target_pitch_velocity + pitch_turbulence_multiplier,
-            target_roll_velocity + roll_turbulence_multiplier,
-            target_yaw_velocity + yaw_turbulence_multiplier);
+            target_pitch_velocity + pitch_turbulence,
+            target_roll_velocity + roll_turbulence,
+            target_yaw_velocity + yaw_turbulence);
     }
 
     new str[680];
@@ -408,9 +408,9 @@ public AngularVelocityTick(playerid) {
         Float:current_yaw;
     GetVehicleRotationEuler(vehicleid, current_roll, current_pitch, current_yaw);
 
-    RollVelocity[vehicleid] = (current_roll - PreviousRoll[vehicleid]) * 0.05;
-    PitchVelocity[vehicleid] = (current_pitch - PreviousPitch[vehicleid]) * 0.05;
-    YawVelocity[vehicleid] = (current_yaw - PreviousYaw[vehicleid]) * 0.05;
+    RollVelocity[vehicleid] = (current_roll - PreviousRoll[vehicleid]) * 10.0;
+    PitchVelocity[vehicleid] = (current_pitch - PreviousPitch[vehicleid]) * 10.0;
+    YawVelocity[vehicleid] = (current_yaw - PreviousYaw[vehicleid]) * 10.0;
 
     PreviousRoll[vehicleid] = current_roll;
     PreviousPitch[vehicleid] = current_pitch;
