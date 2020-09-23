@@ -209,6 +209,45 @@ stock SetVehicleLocalAngularVelocity(vehicleid, Float:vx, Float:vy, Float:vz) {
     return SetVehicleAngularVelocity(vehicleid, wvx, wvy, wvz);
 }
 
+stock GetVehicleLocalVelocity(vehicleid, &Float:vx, &Float:vy, &Float:vz) {
+    new
+        Float:w,
+        Float:x,
+        Float:y,
+        Float:z;
+    GetVehicleRotationQuat(vehicleid, w, x, y, z);
+
+    new Float:matrix[4][4];
+    GetRotationMatrixFromQuat(matrix, w, x, y, z);
+
+    new Float:wvx,
+        Float:wvy,
+        Float:wvz;
+    GetVehicleVelocity(vehicleid, wvx, wvy, wvz);
+
+    MatrixRotate(matrix, wvx, wvy, wvz, 0.0, vx, vy, vz);
+
+    return 1;
+}
+
+stock SetVehicleLocalVelocity(vehicleid, Float:vx, Float:vy, Float:vz) {
+    new
+        Float:w,
+        Float:x,
+        Float:y,
+        Float:z;
+    GetVehicleRotationQuat(vehicleid, w, x, y, z);
+
+    new Float:matrix[4][4];
+    GetRotationMatrixFromQuat(matrix, w, x, y, z);
+
+    new Float:wvx,
+        Float:wvy,
+        Float:wvz;
+    MatrixRotate(matrix, vx, vy, vz, 0.0, wvx, wvy, wvz);
+    return SetVehicleVelocity(vehicleid, wvx, wvy, wvz);
+}
+
 stock GetVehicleRotationEuler(vehicleid, &Float:roll, &Float:pitch, &Float:yaw) {
     new
         Float:qw,
@@ -229,7 +268,7 @@ stock Float:localiseHeadingAngle(Float:heading) {
     return heading > 180.0 ? heading - 360.0 : heading;
 }
 
-stock GetVehicleLocalRotation(vehicleid, Float:roll, Float:pitch, Float:yaw) {
+stock GetVehicleLocalRotation(vehicleid, &Float:roll, &Float:pitch, &Float:yaw) {
     new
         Float:qw,
         Float:qx,
@@ -251,4 +290,41 @@ stock Float:GetGroundSpeed(Float:x, Float:y) {
 
 stock Float:GetAltitudeInFeet(Float:z) {
     return z * METRES_TO_FEET_RATIO;
+}
+
+// Pitch trim is an additional offset applied to the pitch angle in order to
+// keep the aircraft on a level course. It's different for every aircraft as
+// each aircraft has a different lift profile based on its size, speed, etc.
+stock Float:GetAircraftElevatorTrim(modelid) {
+    switch(modelid) {
+        case 460: return 3.45;
+        case 476: return 3.4;
+        case 511: return 2.1;
+        case 512: return 4.7;
+        case 513: return 1.5;
+        case 519: return 1.55;
+        case 520: return 1.5;
+        case 553: return 2.0;
+        case 577: return 2.7;
+        case 592: return 2.7;
+        case 593: return 3.35;
+    }
+    return 0.0;
+}
+
+stock bool:IsVehicleModelPlane(modelid) {
+    switch(modelid) {
+        case 460: return true;
+        case 476: return true;
+        case 511: return true;
+        case 512: return true;
+        case 513: return true;
+        case 519: return true;
+        case 520: return true;
+        case 553: return true;
+        case 577: return true;
+        case 592: return true;
+        case 593: return true;
+    }
+    return false;
 }

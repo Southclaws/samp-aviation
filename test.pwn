@@ -34,11 +34,7 @@ static bool:AP = false;
 static TargetAlt = 500;
 static Float:TargetHeading = 315.0;
 
-// Pitch trim is an additional offset applied to the pitch angle in order to
-// keep the aircraft on a level course. It's different for every aircraft as
-// each aircraft has a different lift profile based on its size, speed, etc.
-// TODO: per-aircraft values.
-static Float:target_attitude_trim = 3.35; // hydra: 1.5, rustler: 3.4
+static Float:TurbulenceMultiplier = 1.0;
 
 forward ApplyTurbulence(playerid);
 forward AngularVelocityTick(playerid);
@@ -47,21 +43,21 @@ public OnGameModeInit() {
     AddPlayerClass(61, -1657.4613, -164.8150, 13.9812, -45.0, 0, 0, 0, 0, 0, 0);
 
     AddStaticVehicle(400, -1660.6632, -169.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(593, -1650.6632, -159.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(460, -1640.6632, -159.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(476, -1620.6632, -149.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(511, -1600.6632, -139.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(512, -1580.6632, -129.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(513, -1560.6632, -119.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(519, -1540.6632, -109.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(520, -1520.6632, -99.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(553, -1500.6632, -89.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(577, -1450.6632, -79.1763, 13.9812, -45.0, 0, 0);
-    AddStaticVehicle(592, -1400.6632, -69.1763, 13.9812, -45.0, 0, 0);
+    AddStaticVehicle(593, -1650.6632, -159.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(460, -1640.6632, -159.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(476, -1620.6632, -149.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(511, -1600.6632, -139.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(512, -1580.6632, -129.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(513, -1560.6632, -119.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(519, -1540.6632, -109.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(520, -1520.6632, -99.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(553, -1500.6632, -89.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(577, -1450.6632, -79.1763, 14.9812, -45.0, 0, 0);
+    AddStaticVehicle(592, -1400.6632, -69.1763, 14.9812, -45.0, 0, 0);
 }
 
 public OnPlayerConnect(playerid) {
-    MessageTextdraw[playerid] = CreatePlayerTextDraw(playerid, 560.000091, 250.947723, "");
+    MessageTextdraw[playerid] = CreatePlayerTextDraw(playerid, 560.000091, 230.0, "");
     PlayerTextDrawLetterSize(playerid, MessageTextdraw[playerid], 0.2, 1.0);
     PlayerTextDrawAlignment(playerid, MessageTextdraw[playerid], 3);
     PlayerTextDrawColor(playerid, MessageTextdraw[playerid], -1);
@@ -73,7 +69,7 @@ public OnPlayerConnect(playerid) {
     PlayerTextDrawSetShadow(playerid, MessageTextdraw[playerid], 0);
     PlayerTextDrawShow(playerid, MessageTextdraw[playerid]);
 
-    SetTimerEx("ApplyTurbulence", 1000, true, "d", playerid);
+    SetTimerEx("ApplyTurbulence", 700, true, "d", playerid);
     SetTimerEx("AngularVelocityTick", 100, true, "d", playerid);
 }
 
@@ -81,16 +77,17 @@ public OnPlayerConnect(playerid) {
 // of challenge to flying planes.
 public ApplyTurbulence(playerid) {
     new vehicleid = GetPlayerVehicleID(playerid);
-    if(!IsValidVehicle(vehicleid)) {
+    if(!IsVehicleModelPlane(GetVehicleModel(vehicleid))) {
         return;
     }
 
     new Float:vx, Float:vy, Float:vz;
     GetVehicleVelocity(vehicleid, vx, vy, vz);
     SetVehicleVelocity(vehicleid,
-        vx + frandom(0.02, -0.02),
-        vy + frandom(0.02, -0.02),
-        vz + frandom(0.02, -0.02));
+        vx,
+        vy + (frandom(0.06, -0.01) * TurbulenceMultiplier),
+        vz + (frandom(0.01, -0.01) * TurbulenceMultiplier)
+    );
 }
 
 public OnPlayerUpdate(playerid) {
@@ -98,6 +95,26 @@ public OnPlayerUpdate(playerid) {
     if(!IsValidVehicle(vehicleid)) {
         return 1;
     }
+
+    new modelid = GetVehicleModel(vehicleid);
+    if(!IsVehicleModelPlane(modelid)) {
+        return 1;
+    }
+
+    new
+        Float:vx,
+        Float:vy,
+        Float:vz;
+    GetVehicleVelocity(vehicleid, vx, vy, vz);
+    new Float:lvx, Float:lvy, Float:lvz;
+    GetVehicleLocalVelocity(vehicleid, lvx, lvy, lvz);
+
+    new Float:air_speed = GetAirSpeed(vx, vy, vz);
+    if(air_speed < 50) {
+        return 1;
+    }
+
+    new Float:ground_speed = GetGroundSpeed(vx, vy);
 
     new Float:heading;
     GetVehicleZAngle(vehicleid, heading);
@@ -120,15 +137,6 @@ public OnPlayerUpdate(playerid) {
         Float:z;
     GetVehiclePos(vehicleid, x, y, z);
 
-    new
-        Float:vx,
-        Float:vy,
-        Float:vz;
-    GetVehicleVelocity(vehicleid, vx, vy, vz);
-
-    new Float:air_speed = GetAirSpeed(x, y, z);
-    new Float:ground_speed = GetGroundSpeed(x, y);
-
     // in order to avoid any complications and additional comparison branches
     // regarding angles, the target heading is used to calculate an offset from
     // the heading. This number will always be in the range -180..180 which
@@ -137,6 +145,8 @@ public OnPlayerUpdate(playerid) {
 
     // Altitude is measured in feet.
     new Float:altitude = GetAltitudeInFeet(z);
+
+    new Float:target_attitude_trim = GetAircraftElevatorTrim(modelid);
 
     new
         Float:attitude_progress,
@@ -187,9 +197,9 @@ public OnPlayerUpdate(playerid) {
     // Auto pilot
     if(AP) {
         SetVehicleLocalAngularVelocity(vehicleid,
-            target_pitch_velocity + pitch_turbulence,
-            target_roll_velocity + roll_turbulence,
-            target_yaw_velocity + yaw_turbulence);
+            target_pitch_velocity + (pitch_turbulence * TurbulenceMultiplier),
+            target_roll_velocity + (roll_turbulence * TurbulenceMultiplier),
+            target_yaw_velocity + (yaw_turbulence * TurbulenceMultiplier));
     }
 
     new str[680];
@@ -211,6 +221,9 @@ public OnPlayerUpdate(playerid) {
         pitch %f~n~\
         roll %f~n~\
         yaw %f~n~\
+        lvx: %f~n~\
+        lvy: %f~n~\
+        lvz: %f~n~\
         pitch V %f~n~\
         roll V %f~n~\
         yaw V %f~n~\
@@ -232,6 +245,9 @@ public OnPlayerUpdate(playerid) {
         pitch,
         roll,
         yaw,
+        lvx,
+        lvy,
+        lvz,
         pitch_velocity,
         roll_velocity,
         yaw_velocity
@@ -247,6 +263,16 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys) {
         new str[14];
         format(str, sizeof str, "Auto pilot: %d", AP);
         SendClientMessage(playerid, 0xFFFFFFFF, str);
+    }
+
+    if(newkeys & KEY_LOOK_BEHIND) {
+        new vehicleid = GetPlayerVehicleID(playerid);
+        new Float:vx, Float:vy, Float:vz;
+        GetVehicleLocalVelocity(vehicleid, vx, vy, vz);
+        SetVehicleLocalVelocity(vehicleid,
+            vx,
+            vy + 1.0,
+            vz);
     }
 }
 
@@ -286,11 +312,6 @@ CMD:w(playerid, params[]) {
     return 1;
 }
 
-CMD:tat(playerid, params[]) {
-    sscanf(params, "f", target_attitude_trim);
-    return 1;
-}
-
 CMD:targetalt(playerid, params[]) {
     sscanf(params, "d", TargetAlt);
     return 1;
@@ -325,6 +346,17 @@ CMD:v(playerid, params[]) {
     new modelid, Float:x, Float:y, Float:z;
     sscanf(params, "d", modelid);
     GetPlayerPos(playerid, x, y, z);
-    CreateVehicle(modelid, x, y, z, 0.0, 0, 0, 0, 0);
+    CreateVehicle(modelid, x, y, z + 1.5, 0.0, 0, 0, 0, 0);
     return 1;
+}
+
+CMD:up(playerid, params[]) {
+    new Float:x, Float:y, Float:z;
+    GetVehiclePos(GetPlayerVehicleID(playerid), x, y, z);
+    SetVehiclePos(GetPlayerVehicleID(playerid), x, y, z + 1000);
+    return 1;
+}
+
+CMD:turb(playerid, params[]) {
+    return !sscanf(params, "f", TurbulenceMultiplier);
 }
