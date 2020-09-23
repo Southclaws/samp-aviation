@@ -27,9 +27,9 @@ static const PITCH_CAPTURE_WINDOW = 250;
 static const Float:HEADING_CAPTURE_WINDOW = 15.0;
 
 // Operation limits for most aircraft.
-static const Float:MAX_PITCH = 15.0;
-static const Float:MAX_ROLL = 15.0;
-static const Float:MAX_YAW = 15.0;
+stock static const Float:MAX_PITCH = 15.0;
+stock static const Float:MAX_ROLL = 15.0;
+stock static const Float:MAX_YAW = 15.0;
 
 static bool:AP = false;
 static TargetAlt = 500;
@@ -246,8 +246,6 @@ public OnPlayerUpdate(playerid) {
     // left it's 1.0 and if it's outside the capture window right, it's -1.0 and
     // all values in between are interpolated long a linear curve.
 
-    new Float:heading_window_low = HEADING_CAPTURE_WINDOW - target_heading_offset;
-    new Float:heading_window_high = HEADING_CAPTURE_WINDOW + target_heading_offset;
     new Float:heading_progress = 0.0;
     if(target_heading_offset < 0.0) {
         if(target_heading_offset > -HEADING_CAPTURE_WINDOW) {
@@ -384,15 +382,6 @@ public OnPlayerUpdate(playerid) {
     return 1;
 }
 
-// localiseHeadingAngle will transform a heading angle into a value that is in
-// the range -180.0..180.0 in order to simplify offset calculations. For example
-// if a heading angle is 270.0, determining how far to turn in order to achieve
-// a heading of 45.0 degrees is not a trivial calculation. But, calculating the
-// necessary change from -90.0 degrees to 45.0 is much simpler.
-Float:localiseHeadingAngle(Float:heading) {
-    return heading > 180.0 ? heading - 360.0 : heading;
-}
-
 // -
 // Angular velocity is not quite as accurate as it could be. Needs some tuning.
 // -
@@ -526,7 +515,7 @@ CMD:fpv(playerid, params[]) {
     }
 
     new Float:ox, Float:oy, Float:oz;
-    sscanf(params, "fff", oz, oy, oz);
+    sscanf(params, "fff", ox, oy, oz);
 
     // someone needs to write a vscode macro/snippet for this:
     new Float:x, Float:y, Float:z;
