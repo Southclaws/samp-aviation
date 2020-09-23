@@ -1,3 +1,7 @@
+// Altitude is measured in feet-above-sea-level.
+static const Float:METRES_TO_FEET_RATIO = 3.28084;
+
+// 
 const Float:METRES_PER_SECOND_KNOTS_RATIO = 1.94384;
 
 static const Float:TARGET_PITCH_MULTIPLIER = 0.01;
@@ -243,4 +247,8 @@ stock Float:GetAirSpeed(Float:x, Float:y, Float:z) {
 
 stock Float:GetGroundSpeed(Float:x, Float:y) {
     return VectorSize(x, y, 0.0) * 50 * METRES_PER_SECOND_KNOTS_RATIO;
+}
+
+stock Float:GetAltitudeInFeet(Float:z) {
+    return z * METRES_TO_FEET_RATIO;
 }

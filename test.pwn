@@ -17,9 +17,6 @@ main() {}
 
 static PlayerText:MessageTextdraw[MAX_PLAYERS];
 
-// Altitude is measured in feet-above-sea-level.
-static const Float:METRES_TO_FEET_RATIO = 3.28084;
-
 // Pitch capture window is the range on either side of the target pitch at which
 // the aircraft starts leveling out to maintain the pitch.
 static const Float:PITCH_CAPTURE_WINDOW = 250.0;
@@ -139,7 +136,7 @@ public OnPlayerUpdate(playerid) {
     new Float:target_heading_offset = localiseHeadingAngle(GetAbsoluteAngle(heading - TargetHeading));
 
     // Altitude is measured in feet.
-    new Float:altitude = z * METRES_TO_FEET_RATIO;
+    new Float:altitude = GetAltitudeInFeet(z);
 
     new
         Float:attitude_progress,
