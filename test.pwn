@@ -1,10 +1,16 @@
 #include <a_samp>
+
+#define YSI_NO_MODE_CACHE
+#define YSI_NO_HEAP_MALLOC
+
+#include <YSI_Coding\y_timers>
 #include <sscanf2>
 #include <zcmd>
 #include <rotations.inc>
 #include <mathutil>
 
 #include "aviation.inc"
+#include "get-angular-velocity.inc"
 
 
 main() {}
@@ -14,13 +20,9 @@ static PlayerText:MessageTextdraw[MAX_PLAYERS];
 // Altitude is measured in feet-above-sea-level.
 static const Float:METRES_TO_FEET_RATIO = 3.28084;
 
-// Velocity is metres per 50th of a second. So to calculate the vertical speed
-// first multiply by 50 then 196.85
-static const Float:FPM_RATIO = 196.85;
-
 // Pitch capture window is the range on either side of the target pitch at which
 // the aircraft starts leveling out to maintain the pitch.
-static const PITCH_CAPTURE_WINDOW = 250;
+static const Float:PITCH_CAPTURE_WINDOW = 250.0;
 
 // Heading capture window is the range on either side of the target heading at
 // which the aircraft starts leveling out to maintain the heading.
@@ -33,11 +35,7 @@ stock static const Float:MAX_YAW = 15.0;
 
 static bool:AP = false;
 static TargetAlt = 500;
-static Float:TargetVerticalSpeed = 1000.0;
 static Float:TargetHeading = 315.0;
-static Float:target_pitch_multiplier = 0.01;
-static Float:target_roll_multiplier = 0.006;
-static Float:target_yaw_multiplier = -0.002;
 
 // Pitch trim is an additional offset applied to the pitch angle in order to
 // keep the aircraft on a level course. It's different for every aircraft as
@@ -86,7 +84,6 @@ public OnPlayerConnect(playerid) {
 // of challenge to flying planes.
 public ApplyTurbulence(playerid) {
     new vehicleid = GetPlayerVehicleID(playerid);
-
     if(!IsValidVehicle(vehicleid)) {
         return;
     }
@@ -101,29 +98,18 @@ public ApplyTurbulence(playerid) {
 
 public OnPlayerUpdate(playerid) {
     new vehicleid = GetPlayerVehicleID(playerid);
-
     if(!IsValidVehicle(vehicleid)) {
         return 1;
     }
 
+    new Float:heading;
+    GetVehicleZAngle(vehicleid, heading);
+
     new
-        Float:qw,
-        Float:qx,
-        Float:qy,
-        Float:qz,
         Float:roll,
         Float:pitch,
-        Float:yaw,
-        Float:heading;
-    GetVehicleRotationQuat(vehicleid, qw, qx, qy, qz);
-    GetVehicleZAngle(vehicleid, heading);
-    GetEulerFromQuat(qw, qx, qy, qz, pitch, roll, yaw);
-
-    // in order to avoid any complications and additional comparison branches
-    // regarding angles, the target heading is used to calculate an offset from
-    // the heading. This number will always be in the range -180..180 which
-    // means all comparisons are done in relative terms rather than abstract.
-    new Float:target_heading_offset = localiseHeadingAngle(GetAbsoluteAngle(heading - TargetHeading));
+        Float:yaw;
+    GetVehicleLocalRotation(vehicleid, roll, pitch, yaw);
 
     new
         Float:pitch_velocity,
@@ -137,183 +123,62 @@ public OnPlayerUpdate(playerid) {
         Float:z;
     GetVehiclePos(vehicleid, x, y, z);
 
-    new Float:altitude = z * METRES_TO_FEET_RATIO; 
-
-    new Float:vx, Float:vy, Float:vz;
+    new
+        Float:vx,
+        Float:vy,
+        Float:vz;
     GetVehicleVelocity(vehicleid, vx, vy, vz);
-    new Float:air_speed = VectorSize(vx, vy, vz);
-    new Float:ground_speed = VectorSize(vx, vy, 0.0);
 
-    new Float:vertical_speed = vz * 50 * FPM_RATIO;
-    new Float:vertical_speed_window_low = TargetVerticalSpeed - 250.0;
-    new Float:vertical_speed_window_high = TargetVerticalSpeed + 250.0;
-    new Float:vertical_speed_progress = 0.0;
-    if(vertical_speed < TargetVerticalSpeed) {
-        if(vertical_speed > vertical_speed_window_low) {
-            vertical_speed_progress = ((-1.0) / (TargetVerticalSpeed - vertical_speed_window_low)) * (vertical_speed - TargetVerticalSpeed);
-        } else {
-            vertical_speed_progress = 1.0;
-        }
-    } else {
-        if(vertical_speed < vertical_speed_window_high) {
-            vertical_speed_progress = -(((-1.0) / (TargetVerticalSpeed - vertical_speed_window_high)) * (vertical_speed - TargetVerticalSpeed));
-        } else {
-            vertical_speed_progress = -1.0;
-        }
-    }
+    new Float:air_speed = GetAirSpeed(x, y, z);
+    new Float:ground_speed = GetGroundSpeed(x, y);
 
-    // for pitch adjustment, we want to produce a multiplier between -1.0 and
-    // 1.0 that is applied to the pitch angle depending on how close to the
-    // target altitude the plane is. When the plane is at the target altitude,
-    // the multiplier is at 0.0 and the altitude is considered captured. If the
-    // plane is outside the capture window, the multiplier is at either -1.0 or 1
-    // 0 and the plane is pitched at the maximum attitude (up or down) to achieve
-    // the target. If the plane is within the capture window, the altitude
-    // multiplier moves linearly towards 0.0 to achieve a smooth transition. This
-    // also enables altitude hold mode using small nudges up and down.
-    //
-    // This multiplier value is stored inside `altitude_progress`.
+    // in order to avoid any complications and additional comparison branches
+    // regarding angles, the target heading is used to calculate an offset from
+    // the heading. This number will always be in the range -180..180 which
+    // means all comparisons are done in relative terms rather than abstract.
+    new Float:target_heading_offset = localiseHeadingAngle(GetAbsoluteAngle(heading - TargetHeading));
 
-    new altitude_window_low = TargetAlt - PITCH_CAPTURE_WINDOW;
-    new altitude_window_high = TargetAlt + PITCH_CAPTURE_WINDOW;
-    new Float:altitude_progress = 0.0;
-    if(altitude < TargetAlt) {
-        if(altitude > altitude_window_low) {
-            altitude_progress = ((-1.0) / (TargetAlt - altitude_window_low)) * (altitude - TargetAlt);
-        } else {
-            altitude_progress = 1.0;
-        }
-    } else {
-        if(altitude < altitude_window_high) {
-            altitude_progress = -(((-1.0) / (TargetAlt - altitude_window_high)) * (altitude - TargetAlt));
-        } else {
-            altitude_progress = -1.0;
-        }
-    }
+    // Altitude is measured in feet.
+    new Float:altitude = z * METRES_TO_FEET_RATIO;
 
-    // Now we need the target attitude of the plane (also known as pitch). This
-    // value is calculated as a simple multiplication of the maximum pitch by
-    // the altitude_progress value. Since it's -1..1 the pitch range is
-    // -MAX..MAX with a smooth transition in between. This keeps the plane at an
-    // attitude that will eventually achieve the target altitude and is
-    // calculated using very similar rules to the altitude progress. There's a
-    // capture window which is 10 degrees below and above the target and this
-    // results in a similar linear interpolation between the window edge and
-    // the target, which resides at 0.0.
-    //
-    // There's also an additional component to this: `target_attitude_trim`
-    // which is somewhat of a game engine related adjustment but also can serve
-    // as an analogy to real-life aerodynamics too. Each plane in the game has
-    // some amount of lift. This lift will raise the plane when it's travelling
-    // at a constant zero attitude. This is also how wings work in the real
-    // world (though they are far more complicated and are not accurately
-    // modelled here obviously!) as a result of this, the plane, in order to
-    // maintain a constant pitch of zero when the altitude has been captured,
-    // must be trimmed down somewhat so it is at a negative pitch when
-    // maintaining the target altitude. You can read more about elevator trim
-    // in aviation textbooks.
+    new
+        Float:attitude_progress,
+        Float:roll_progress,
+        Float:heading_progress;
 
-    new Float:target_attitude = (MAX_PITCH * altitude_progress) - target_attitude_trim;
-    // I did attempt vertical speed mode using the following formula:
-    // but it oscilates around the target altitude a lot for some reason.
-    // new Float:target_attitude = (MAX_PITCH * vertical_speed_progress) - target_attitude_trim;
-    new Float:attitude_window_low = target_attitude - 10.0;
-    new Float:attitude_window_high = target_attitude + 10.0;
-    new Float:attitude_progress = 0.0;
-    if(pitch < target_attitude) {
-        if(pitch > attitude_window_low) {
-            attitude_progress = ((-1.0) / (target_attitude - attitude_window_low)) * (pitch - target_attitude);
-        } else {
-            attitude_progress = 1.0;
-        }
-    } else {
-        if(pitch < attitude_window_high) {
-            attitude_progress = -(((-1.0) / (target_attitude - attitude_window_high)) * (pitch - target_attitude));
-        } else {
-            attitude_progress = -1.0;
-        }
-    }
+    GetTargetOrientationProgress(
+        altitude,
+        pitch,
+        roll,
 
-    // Heading is treated similarly to the above two values. There's a capture
-    // window, a progress value from -1.0 to 1.0 which is used to calculate
-    // a target orientation of some sort. The difference here is the comparisons
-    // are not using absolute value comparisons but just the difference between
-    // the heading and the target heading (target_heading_offset). The capture
-    // windows are also calculated differently and the linear interpolation is
-    // just a basic mapping from the heading capture window range to -1..1.
-    // So, the result of this is: when the plane is heading towards its target,
-    // the `heading_progress` value is zero. If it's outside the capture window
-    // left it's 1.0 and if it's outside the capture window right, it's -1.0 and
-    // all values in between are interpolated long a linear curve.
+        target_heading_offset,
+        TargetAlt,
 
-    new Float:heading_progress = 0.0;
-    if(target_heading_offset < 0.0) {
-        if(target_heading_offset > -HEADING_CAPTURE_WINDOW) {
-            heading_progress = target_heading_offset / HEADING_CAPTURE_WINDOW;
-        } else {
-            heading_progress = -1.0;
-        }
-    } else {
-        if(target_heading_offset < HEADING_CAPTURE_WINDOW) {
-            heading_progress = target_heading_offset / HEADING_CAPTURE_WINDOW;
-        } else {
-            heading_progress = 1.0;
-        }
-    }
+        PITCH_CAPTURE_WINDOW,
+        HEADING_CAPTURE_WINDOW,
+        MAX_PITCH,
+        MAX_ROLL,
+        target_attitude_trim,
 
-    // So, in order to rotate the plane, it must be rolled. Planes make heading
-    // adjustments not by using the rudder (contrary to popular belief) but they
-    // roll torwards the target heading and pitch up slightly. You can learn
-    // about the aerodynamics of this elsewhere. The game does a fairly okay job
-    // at simulating this behaviour so most of the time we just need to roll.
-    //
-    // Generally, rolls are no more than 15 degrees unless you're in special
-    // circumstances. So, we just need to take the `heading_progress` value from
-    // above (which is -1.0 to 1.0) and multiply it by 15. If the plane needs
-    // to turn right, the target roll is somewhere between 15 and 0 and left
-    // turns are the same but negative. Just like above, there's a window for
-    // smooth transitions which is 3 degrees.
+        attitude_progress,
+        roll_progress,
+        heading_progress
+    );
 
-    new Float:target_roll = (MAX_ROLL * heading_progress);
-    new Float:roll_window_low = target_roll - 3.0;
-    new Float:roll_window_high = target_roll + 3.0;
-    new Float:roll_progress = 0.0;
-    if(roll < target_roll) {
-        if(roll > roll_window_low) {
-            roll_progress = ((-1.0) / (target_roll - roll_window_low)) * (roll - target_roll);
-        } else {
-            roll_progress = 1.0;
-        }
-    } else {
-        if(roll < roll_window_high) {
-            roll_progress = -(((-1.0) / (target_roll - roll_window_high)) * (roll - target_roll));
-        } else {
-            roll_progress = -1.0;
-        }
-    }
+    new
+        Float:target_pitch_velocity = 0.0,
+        Float:target_roll_velocity = 0.0,
+        Float:target_yaw_velocity = 0.0;
 
-    // And finally, all the numbers are multiplied together in order to get our
-    // final numbers. These numbers are angular velocities to nudge the plane
-    // in the desired direction. Each dimension of movement has some constant
-    // multiplier associated with it to bring the -1.0..1.0 ranged value into
-    // some space that makes sense in the context of vehicle angular velocities.
-    //
-    // Note: I have no idea what the actual units are for the 
-    // SetVehicleAngularVelocity function.
+    GetTargetAngularVelocities(
+        attitude_progress,
+        roll_progress,
+        heading_progress,
 
-    // Planes roll and also pitch up in order to turn properly. So the target
-    // pitch also takes into account the desired roll a tiny bit by adding some
-    // value derived from the roll progress.
-    new Float:target_pitch_velocity =
-        (attitude_progress * target_pitch_multiplier) +
-        floatabs(roll_progress * 0.001);
-
-    new Float:target_roll_velocity = roll_progress * target_roll_multiplier;
-
-    // Yes, there is some yaw movement involved. Most planes don't actually use
-    // the rudder for large turns like this but the game simulation is not
-    // perfect so there's a bit of yaw movement to help it.
-    new Float:target_yaw_velocity = heading_progress * target_yaw_multiplier;
+        target_pitch_velocity,
+        target_roll_velocity,
+        target_yaw_velocity
+    );
 
     // This is just some very basic wobble to add some extra unexpected
     // rotations into the mix. It makes the AP look a little less robotic and
@@ -332,103 +197,57 @@ public OnPlayerUpdate(playerid) {
 
     new str[680];
     format(str, sizeof str,
-        "altitude_progress: %f~n~\
-        target_attitude: %f~n~\
-        attitude_progress: %f~n~\
+        "attitude_progress: %f~n~\
         target_pitch_velocity: %f~n~\
-        \
-        vertical_speed_progress: %f~n~\
-        \
-        heading_progress: %f~n~\
-        target_roll: %f~n~\
         roll_progress: %f~n~\
         target_roll_velocity: %f~n~\
-        \
+        heading_progress: %f~n~\
+        target_yaw_velocity: %f~n~\
+        ~n~\
+        heading: %f~n~\
+        target_heading_offset: %f~n~\
+        altitude %f~n~\
+        target altitude: %d~n~\
+        ~n~\
         air_speed: %f~n~\
         ground_speed: %f~n~\
-        \
-        Pitch %f Roll %f Yaw %f~n~\
-        \
-        Pitch V %f Roll V %f Yaw V %f~n~\
-        \
-        Heading: %f Target: %f~n~\
-        Alt %f Target: %d~n~\
-        VS %f Target: %f~n~\
+        pitch %f~n~\
+        roll %f~n~\
+        yaw %f~n~\
+        pitch V %f~n~\
+        roll V %f~n~\
+        yaw V %f~n~\
         ",
-        altitude_progress,
-        target_attitude,
         attitude_progress,
         target_pitch_velocity,
-
-        vertical_speed_progress,
-
-        heading_progress,
-        target_roll,
         roll_progress,
         target_roll_velocity,
+        heading_progress,
+        target_yaw_velocity,
+
+        heading,
+        target_heading_offset,
+        altitude,
+        TargetAlt,
 
         air_speed,
         ground_speed,
-
-        pitch, roll, yaw,
-
-        pitch_velocity, roll_velocity, yaw_velocity,
-
-        heading, target_heading_offset,
-        altitude, TargetAlt,
-        vertical_speed, TargetVerticalSpeed);
+        pitch,
+        roll,
+        yaw,
+        pitch_velocity,
+        roll_velocity,
+        yaw_velocity
+    );
     PlayerTextDrawSetString(playerid, MessageTextdraw[playerid], str);
 
     return 1;
 }
 
-// -
-// Angular velocity is not quite as accurate as it could be. Needs some tuning.
-// -
-
-static
-    Float:PreviousRoll[MAX_VEHICLES],
-    Float:PreviousPitch[MAX_VEHICLES],
-    Float:PreviousYaw[MAX_VEHICLES],
-    Float:RollVelocity[MAX_VEHICLES],
-    Float:PitchVelocity[MAX_VEHICLES],
-    Float:YawVelocity[MAX_VEHICLES];
-
-forward AngularVelocityTick(playerid);
-public AngularVelocityTick(playerid) {
-    new vehicleid = GetPlayerVehicleID(playerid);
-
-    if(!IsValidVehicle(vehicleid)) {
-        return 1;
-    }
-
-    new
-        Float:current_roll,
-        Float:current_pitch,
-        Float:current_yaw;
-    GetVehicleRotationEuler(vehicleid, current_roll, current_pitch, current_yaw);
-
-    RollVelocity[vehicleid] = (current_roll - PreviousRoll[vehicleid]) * 10.0;
-    PitchVelocity[vehicleid] = (current_pitch - PreviousPitch[vehicleid]) * 10.0;
-    YawVelocity[vehicleid] = (current_yaw - PreviousYaw[vehicleid]) * 10.0;
-
-    PreviousRoll[vehicleid] = current_roll;
-    PreviousPitch[vehicleid] = current_pitch;
-    PreviousYaw[vehicleid] = current_yaw;
-
-    return 1;
-}
-
-stock GetVehicleLocalAngularVelocity(vehicleid, &Float:vx, &Float:vy, &Float:vz) {
-    vx = RollVelocity[vehicleid];
-    vy = PitchVelocity[vehicleid];
-    vz = YawVelocity[vehicleid];
-}
-
 public OnPlayerKeyStateChange(playerid, newkeys, oldkeys) {
     if(newkeys &  KEY_FIRE) {
         AP = !AP;
-        new str[128];
+        new str[14];
         format(str, sizeof str, "Auto pilot: %d", AP);
         SendClientMessage(playerid, 0xFFFFFFFF, str);
     }
@@ -446,16 +265,6 @@ CMD:althold(playerid, params[]) {
     SendClientMessage(playerid, 0xFFFFFFFF, str);
 
     TargetAlt = target;
-}
-
-CMD:vs(playerid, params[]) {
-    new Float:target = floatstr(params[4]);
-
-    new str[128];
-    format(str, sizeof str, "Target vertical speed: %fft/s", target);
-    SendClientMessage(playerid, 0xFFFFFFFF, str);
-
-    TargetVerticalSpeed = target;
 }
 
 CMD:grav(playerid, params[]) {
@@ -477,19 +286,6 @@ CMD:p(playerid, params[]) {
 
 CMD:w(playerid, params[]) {
     SetWeather(strval(params));
-    return 1;
-}
-
-CMD:tpv(playerid, params[]) {
-    if(sscanf(params, "f", target_pitch_multiplier)) {
-        SendClientMessage(playerid, -1, "Usage: tpv [value]");
-        return 1;
-    }
-
-    new str[128];
-    format(str, sizeof str, "target_pitch_multiplier: %f", target_pitch_multiplier);
-    SendClientMessage(playerid, 0xFFFFFFFF, str);
-
     return 1;
 }
 
