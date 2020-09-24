@@ -9,9 +9,18 @@
 #include <rotations.inc>
 #include <mathutil>
 
+#include "utils.inc"
 #include "aviation.inc"
 #include "get-angular-velocity.inc"
+#include "ils-approach.inc"
 
+
+const Float:AIRSTRIP_X = -1127.5;
+const Float:AIRSTRIP_Y = 365.5;
+const Float:AIRSTRIP_Z = 13.2;
+const Float:AIRSTRIP_H = 315.0;
+
+const Float:AIRCRAFT_PROCEDURE_RADIUS = 500.0;
 
 main() {}
 
@@ -31,8 +40,21 @@ stock static const Float:MAX_ROLL = 15.0;
 stock static const Float:MAX_YAW = 15.0;
 
 static bool:AP = false;
-static TargetAlt = 500;
+static bool:CourseCreated = false;
+static Float:TargetAlt = 500.0;
 static Float:TargetHeading = 315.0;
+
+static
+    Float:CourseStartX,
+    Float:CourseStartY,
+    Float:CourseStartZ,
+    Float:CourseEntryX,
+    Float:CourseEntryY,
+    Float:CourseEntryZ,
+    Float:CourseGlideX,
+    Float:CourseGlideY,
+    Float:CourseGlideZ,
+    Float:CourseDistance;
 
 static Float:TurbulenceMultiplier = 1.0;
 
@@ -57,7 +79,7 @@ public OnGameModeInit() {
 }
 
 public OnPlayerConnect(playerid) {
-    MessageTextdraw[playerid] = CreatePlayerTextDraw(playerid, 560.000091, 230.0, "");
+    MessageTextdraw[playerid] = CreatePlayerTextDraw(playerid, 560.000091, 100.0, "");
     PlayerTextDrawLetterSize(playerid, MessageTextdraw[playerid], 0.2, 1.0);
     PlayerTextDrawAlignment(playerid, MessageTextdraw[playerid], 3);
     PlayerTextDrawColor(playerid, MessageTextdraw[playerid], -1);
@@ -76,18 +98,18 @@ public OnPlayerConnect(playerid) {
 // Random velocity nudges in all directions. Very basic turbulence to add a bit
 // of challenge to flying planes.
 public ApplyTurbulence(playerid) {
-    new vehicleid = GetPlayerVehicleID(playerid);
-    if(!IsVehicleModelPlane(GetVehicleModel(vehicleid))) {
-        return;
-    }
+    // new vehicleid = GetPlayerVehicleID(playerid);
+    // if(!IsVehicleModelPlane(GetVehicleModel(vehicleid))) {
+    //     return;
+    // }
 
-    new Float:vx, Float:vy, Float:vz;
-    GetVehicleVelocity(vehicleid, vx, vy, vz);
-    SetVehicleVelocity(vehicleid,
-        vx,
-        vy + (frandom(0.06, -0.01) * TurbulenceMultiplier),
-        vz + (frandom(0.01, -0.01) * TurbulenceMultiplier)
-    );
+    // new Float:vx, Float:vy, Float:vz;
+    // GetVehicleVelocity(vehicleid, vx, vy, vz);
+    // SetVehicleVelocity(vehicleid,
+    //     vx,
+    //     vy + (frandom(0.06, -0.01) * TurbulenceMultiplier),
+    //     vz + (frandom(0.01, -0.01) * TurbulenceMultiplier)
+    // );
 }
 
 public OnPlayerUpdate(playerid) {
@@ -110,9 +132,6 @@ public OnPlayerUpdate(playerid) {
     GetVehicleLocalVelocity(vehicleid, lvx, lvy, lvz);
 
     new Float:air_speed = GetAirSpeed(vx, vy, vz);
-    if(air_speed < 50) {
-        return 1;
-    }
 
     new Float:ground_speed = GetGroundSpeed(vx, vy);
 
@@ -136,6 +155,103 @@ public OnPlayerUpdate(playerid) {
         Float:y,
         Float:z;
     GetVehiclePos(vehicleid, x, y, z);
+
+    new Float:beacon_altitude = GetAltitudeForILS(
+        AIRSTRIP_X,
+        AIRSTRIP_Y,
+        AIRSTRIP_Z,
+        1000.0);
+
+    new Float:distance_to_landing_strip = GetDistance3D(
+        x, y, z,
+        AIRSTRIP_X, AIRSTRIP_Y, AIRSTRIP_Z
+    );
+    new Float:glide_slope_curve_distance = distance_to_landing_strip - (AIRCRAFT_PROCEDURE_RADIUS * 0.5);
+    new Float:glide_slope_entry_distance = distance_to_landing_strip - (AIRCRAFT_PROCEDURE_RADIUS * 2);
+
+    new
+        Float:beacon_x = AIRSTRIP_X,
+        Float:beacon_y = AIRSTRIP_Y;
+    GetXYFromAngle(beacon_x, beacon_y, AIRSTRIP_H, 1000.0);
+
+    new Float:distance_to_course = GetDistancePointLine(
+        AIRSTRIP_X, AIRSTRIP_Y, AIRSTRIP_Z,
+        floatsin(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees),
+        floatcos(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees),
+        floatsin(3.0, degrees),
+        x, y, z
+    );
+
+    new Float:angle_to_aircraft = localiseHeadingAngle(GetAbsoluteAngle(GetAngleToPoint(AIRSTRIP_X, AIRSTRIP_Y, x, y) - AIRSTRIP_H));
+
+    if(angle_to_aircraft > 30 || angle_to_aircraft < -30) {
+        AP = false;
+        // ILS = false;
+    }
+
+    new Float:course_target_heading = 0.0;
+    new Float:course_target_altitude = 0.0;
+
+    new Float:course_progress = 1.0 - ((-1.0) / (CourseDistance)) * (distance_to_course - CourseDistance);
+
+    if(distance_to_course > AIRCRAFT_PROCEDURE_RADIUS) {
+        if(angle_to_aircraft < 0.0) {
+            TargetHeading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) - 45.0);
+        } else {
+            TargetHeading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) + 45.0);
+        }
+    } else {
+        CourseStartX = x;
+        CourseStartY = y;
+        CourseStartZ = z;
+
+        CourseEntryX = AIRSTRIP_X + (glide_slope_curve_distance * floatsin(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees));
+        CourseEntryY = AIRSTRIP_Y + (glide_slope_curve_distance * floatcos(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees));
+        CourseEntryZ = AIRSTRIP_Z + (glide_slope_curve_distance * floatsin(3.0, degrees));
+
+        CourseGlideX = AIRSTRIP_X + (glide_slope_entry_distance * floatsin(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees));
+        CourseGlideY = AIRSTRIP_Y + (glide_slope_entry_distance * floatcos(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees));
+        CourseGlideZ = AIRSTRIP_Z + (glide_slope_entry_distance * floatsin(3.0, degrees));
+
+        CourseDistance = distance_to_course;
+
+        new
+            Float:target_x,
+            Float:target_y;
+
+        BezierOrder2(
+            CourseStartX,
+            CourseStartY,
+
+            CourseEntryX,
+            CourseEntryY,
+
+            CourseGlideX,
+            CourseGlideY,
+
+            0.1,
+
+            target_x,
+            target_y,
+            course_target_heading
+        );
+    
+        course_target_altitude = GetAltitudeForILS(
+            AIRSTRIP_X,
+            AIRSTRIP_Y,
+            AIRSTRIP_Z,
+            GetDistance3D(
+                AIRSTRIP_X,
+                AIRSTRIP_Y,
+                AIRSTRIP_Z,
+                x, y, z
+            ));
+    }
+
+    if(AP) {
+        TargetHeading = course_target_heading;
+        TargetAlt = course_target_altitude;
+    }
 
     // in order to avoid any complications and additional comparison branches
     // regarding angles, the target heading is used to calculate an offset from
@@ -195,14 +311,14 @@ public OnPlayerUpdate(playerid) {
     new Float:yaw_turbulence = frandom(0.0005, -0.0005);
 
     // Auto pilot
-    if(AP) {
+    if(AP && air_speed > 50) {
         SetVehicleLocalAngularVelocity(vehicleid,
             target_pitch_velocity + (pitch_turbulence * TurbulenceMultiplier),
             target_roll_velocity + (roll_turbulence * TurbulenceMultiplier),
             target_yaw_velocity + (yaw_turbulence * TurbulenceMultiplier));
     }
 
-    new str[680];
+    new str[1024];
     format(str, sizeof str,
         "attitude_progress: %f~n~\
         target_pitch_velocity: %f~n~\
@@ -212,9 +328,17 @@ public OnPlayerUpdate(playerid) {
         target_yaw_velocity: %f~n~\
         ~n~\
         heading: %f~n~\
+        TargetHeading: %f~n~\
         target_heading_offset: %f~n~\
         altitude %f~n~\
-        target altitude: %d~n~\
+        target altitude: %f~n~\
+        ~n~\
+        distance_to_course: %f~n~\
+        beacon_altitude: %f~n~\
+        angle_to_aircraft: %f~n~\
+        course_target_heading: %f~n~\
+        course_target_altitude: %f~n~\
+        course_progress: %f~n~\
         ~n~\
         air_speed: %f~n~\
         ground_speed: %f~n~\
@@ -236,9 +360,17 @@ public OnPlayerUpdate(playerid) {
         target_yaw_velocity,
 
         heading,
+        TargetHeading,
         target_heading_offset,
         altitude,
         TargetAlt,
+
+        distance_to_course,
+        beacon_altitude,
+        angle_to_aircraft,
+        course_target_heading,
+        course_target_altitude,
+        course_progress,
 
         air_speed,
         ground_speed,
@@ -301,8 +433,8 @@ CMD:grav1(playerid, params[]) {
 }
 
 CMD:p(playerid, params[]) {
-    SetPlayerPos(playerid, -1650.6632, -159.1763, 200.0);
-    new v = CreateVehicle(593, -1650.6632, -159.1763, 200.0, -45.0, 0, 0, 0, 0);
+    SetPlayerPos(playerid, 239.6632, 1009.1763, 300.0);
+    new v = CreateVehicle(593, 239.6632, 1009.1763, 300.0, 135.0, 0, 0, 0, 0);
     PutPlayerInVehicle(playerid, v, 0);
     return 1;
 }
