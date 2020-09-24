@@ -1,3 +1,8 @@
+// simple linear interpolation
+Float:LinierInterpolation(Float:v0, Float:v1, Float:t) {
+    return (1 - t) * v0 + t * v1;
+}
+
 // An order 2 bezier curve function.
 stock Float:BezierOrder2(
     Float:p1_x,
@@ -24,9 +29,4 @@ stock Float:BezierOrder2(
     t_x = LinierInterpolation(l1_x, l2_x, t);
     t_y = LinierInterpolation(l1_y, l2_y, t);
     t_h = GetAngleToPoint(l1_x, l1_y, l2_x, l2_y);
-}
-
-// simple linear interpolation
-Float:LinierInterpolation(Float:v0, Float:v1, Float:t) {
-    return (1 - t) * v0 + t * v1;
 }

@@ -12,6 +12,7 @@
 #include "utils.inc"
 #include "aviation.inc"
 #include "get-angular-velocity.inc"
+#include "course-heading.inc"
 #include "ils-approach.inc"
 
 
@@ -40,21 +41,8 @@ stock static const Float:MAX_ROLL = 15.0;
 stock static const Float:MAX_YAW = 15.0;
 
 static bool:AP = false;
-static bool:CourseCreated = false;
 static Float:TargetAlt = 500.0;
 static Float:TargetHeading = 315.0;
-
-static
-    Float:CourseStartX,
-    Float:CourseStartY,
-    Float:CourseStartZ,
-    Float:CourseEntryX,
-    Float:CourseEntryY,
-    Float:CourseEntryZ,
-    Float:CourseGlideX,
-    Float:CourseGlideY,
-    Float:CourseGlideZ,
-    Float:CourseDistance;
 
 static Float:TurbulenceMultiplier = 1.0;
 
@@ -156,19 +144,6 @@ public OnPlayerUpdate(playerid) {
         Float:z;
     GetVehiclePos(vehicleid, x, y, z);
 
-    new Float:beacon_altitude = GetAltitudeForILS(
-        AIRSTRIP_X,
-        AIRSTRIP_Y,
-        AIRSTRIP_Z,
-        1000.0);
-
-    new Float:distance_to_landing_strip = GetDistance3D(
-        x, y, z,
-        AIRSTRIP_X, AIRSTRIP_Y, AIRSTRIP_Z
-    );
-    new Float:glide_slope_curve_distance = distance_to_landing_strip - (AIRCRAFT_PROCEDURE_RADIUS * 0.5);
-    new Float:glide_slope_entry_distance = distance_to_landing_strip - (AIRCRAFT_PROCEDURE_RADIUS * 2);
-
     new
         Float:beacon_x = AIRSTRIP_X,
         Float:beacon_y = AIRSTRIP_Y;
@@ -184,15 +159,14 @@ public OnPlayerUpdate(playerid) {
 
     new Float:angle_to_aircraft = localiseHeadingAngle(GetAbsoluteAngle(GetAngleToPoint(AIRSTRIP_X, AIRSTRIP_Y, x, y) - AIRSTRIP_H));
 
-    if(angle_to_aircraft > 30 || angle_to_aircraft < -30) {
-        AP = false;
-        // ILS = false;
-    }
+    // TODO: disable AP or ILS when outside localizer capture radials
+    // if(angle_to_aircraft > 30 || angle_to_aircraft < -30) {
+    //     AP = false;
+    //     // ILS = false;
+    // }
 
     new Float:course_target_heading = 0.0;
     new Float:course_target_altitude = 0.0;
-
-    new Float:course_progress = 1.0 - ((-1.0) / (CourseDistance)) * (distance_to_course - CourseDistance);
 
     if(distance_to_course > AIRCRAFT_PROCEDURE_RADIUS) {
         if(angle_to_aircraft < 0.0) {
@@ -201,51 +175,20 @@ public OnPlayerUpdate(playerid) {
             TargetHeading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) + 45.0);
         }
     } else {
-        CourseStartX = x;
-        CourseStartY = y;
-        CourseStartZ = z;
-
-        CourseEntryX = AIRSTRIP_X + (glide_slope_curve_distance * floatsin(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees));
-        CourseEntryY = AIRSTRIP_Y + (glide_slope_curve_distance * floatcos(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees));
-        CourseEntryZ = AIRSTRIP_Z + (glide_slope_curve_distance * floatsin(3.0, degrees));
-
-        CourseGlideX = AIRSTRIP_X + (glide_slope_entry_distance * floatsin(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees));
-        CourseGlideY = AIRSTRIP_Y + (glide_slope_entry_distance * floatcos(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees));
-        CourseGlideZ = AIRSTRIP_Z + (glide_slope_entry_distance * floatsin(3.0, degrees));
-
-        CourseDistance = distance_to_course;
-
-        new
-            Float:target_x,
-            Float:target_y;
-
-        BezierOrder2(
-            CourseStartX,
-            CourseStartY,
-
-            CourseEntryX,
-            CourseEntryY,
-
-            CourseGlideX,
-            CourseGlideY,
-
-            0.1,
-
-            target_x,
-            target_y,
-            course_target_heading
-        );
-    
-        course_target_altitude = GetAltitudeForILS(
+        course_target_heading = GetHeadingForWaypointCourse(
+            x, y,
             AIRSTRIP_X,
             AIRSTRIP_Y,
-            AIRSTRIP_Z,
+            GetAbsoluteAngle(AIRSTRIP_H - 180.0),
+            AIRCRAFT_PROCEDURE_RADIUS
+        );
+        course_target_altitude = 3.28084 * (AIRSTRIP_Z + GetAltitudeForILS(
             GetDistance3D(
                 AIRSTRIP_X,
                 AIRSTRIP_Y,
                 AIRSTRIP_Z,
                 x, y, z
-            ));
+            )));
     }
 
     if(AP) {
@@ -334,11 +277,9 @@ public OnPlayerUpdate(playerid) {
         target altitude: %f~n~\
         ~n~\
         distance_to_course: %f~n~\
-        beacon_altitude: %f~n~\
         angle_to_aircraft: %f~n~\
         course_target_heading: %f~n~\
         course_target_altitude: %f~n~\
-        course_progress: %f~n~\
         ~n~\
         air_speed: %f~n~\
         ground_speed: %f~n~\
@@ -366,11 +307,9 @@ public OnPlayerUpdate(playerid) {
         TargetAlt,
 
         distance_to_course,
-        beacon_altitude,
         angle_to_aircraft,
         course_target_heading,
         course_target_altitude,
-        course_progress,
 
         air_speed,
         ground_speed,
