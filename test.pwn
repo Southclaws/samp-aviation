@@ -206,9 +206,9 @@ public OnPlayerUpdate(playerid) {
 
         if(distance_to_course > AIRCRAFT_PROCEDURE_RADIUS) {
             if(angle_to_aircraft < 0.0) {
-                target_heading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) - 45.0);
+                course_target_heading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) - 40.0);
             } else {
-                target_heading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) + 45.0);
+                course_target_heading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) + 40.0);
             }
         } else {
             course_target_heading = GetHeadingForWaypointCourse(
@@ -345,7 +345,7 @@ public OnPlayerUpdate(playerid) {
         target_yaw_velocity: %f~n~\
         ~n~\
         heading: %f~n~\
-        TargetHeading: %f~n~\
+        target_heading: %f~n~\
         target_heading_offset: %f~n~\
         altitude %f~n~\
         target altitude: %f~n~\
@@ -373,7 +373,7 @@ public OnPlayerUpdate(playerid) {
         target_yaw_velocity,
 
         heading,
-        TargetHeading,
+        target_heading,
         target_heading_offset,
         altitude,
         TargetAlt,
@@ -404,16 +404,6 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys) {
         new str[14];
         format(str, sizeof str, "Auto pilot: %d", AP);
         SendClientMessage(playerid, 0xFFFFFFFF, str);
-    }
-
-    if(newkeys & KEY_LOOK_BEHIND) {
-        new vehicleid = GetPlayerVehicleID(playerid);
-        new Float:vx, Float:vy, Float:vz;
-        GetVehicleLocalVelocity(vehicleid, vx, vy, vz);
-        SetVehicleLocalVelocity(vehicleid,
-            vx,
-            vy + 1.0,
-            vz);
     }
 }
 
