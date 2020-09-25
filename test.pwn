@@ -14,6 +14,7 @@
 #include "get-angular-velocity.inc"
 #include "course-heading.inc"
 #include "ils-approach.inc"
+#include "pfd.inc"
 
 
 const Float:AIRSTRIP_X = -1127.5;
@@ -41,10 +42,18 @@ stock static const Float:MAX_ROLL = 15.0;
 stock static const Float:MAX_YAW = 15.0;
 
 static bool:AP = false;
+static bool:ILS = false;
 static Float:TargetAlt = 500.0;
 static Float:TargetHeading = 315.0;
 
 static Float:TurbulenceMultiplier = 1.0;
+
+static PlayerText:PFDInterface_DistBearing[MAX_PLAYERS];
+static PlayerText:PFDInterface_Altitude[MAX_PLAYERS];
+static PlayerText:PFDInterface_Glideslope[MAX_PLAYERS];
+static PlayerText:PFDInterface_Autopilot[MAX_PLAYERS];
+static PlayerText:PFDInterface_LocHea[MAX_PLAYERS];
+static PlayerText:PFDInterface_FlpLeg[MAX_PLAYERS];
 
 forward ApplyTurbulence(playerid);
 forward AngularVelocityTick(playerid);
@@ -78,6 +87,16 @@ public OnPlayerConnect(playerid) {
     PlayerTextDrawSetProportional(playerid, MessageTextdraw[playerid], 1);
     PlayerTextDrawSetShadow(playerid, MessageTextdraw[playerid], 0);
     PlayerTextDrawShow(playerid, MessageTextdraw[playerid]);
+
+    CreatePFDInterface(
+        playerid,
+        PFDInterface_DistBearing[playerid],
+        PFDInterface_Altitude[playerid],
+        PFDInterface_Glideslope[playerid],
+        PFDInterface_Autopilot[playerid],
+        PFDInterface_LocHea[playerid],
+        PFDInterface_FlpLeg[playerid]
+    );
 
     SetTimerEx("ApplyTurbulence", 700, true, "d", playerid);
     SetTimerEx("AngularVelocityTick", 100, true, "d", playerid);
@@ -144,11 +163,6 @@ public OnPlayerUpdate(playerid) {
         Float:z;
     GetVehiclePos(vehicleid, x, y, z);
 
-    new
-        Float:beacon_x = AIRSTRIP_X,
-        Float:beacon_y = AIRSTRIP_Y;
-    GetXYFromAngle(beacon_x, beacon_y, AIRSTRIP_H, 1000.0);
-
     new Float:distance_to_course = GetDistancePointLine(
         AIRSTRIP_X, AIRSTRIP_Y, AIRSTRIP_Z,
         floatsin(-AIRSTRIP_H, degrees) * floatcos(3.0, degrees),
@@ -157,50 +171,67 @@ public OnPlayerUpdate(playerid) {
         x, y, z
     );
 
-    new Float:angle_to_aircraft = localiseHeadingAngle(GetAbsoluteAngle(GetAngleToPoint(AIRSTRIP_X, AIRSTRIP_Y, x, y) - AIRSTRIP_H));
+    new Float:distance_to_waypoint = GetDistance3D(
+        AIRSTRIP_X,
+        AIRSTRIP_Y,
+        AIRSTRIP_Z,
+        x, y, z
+    );
 
-    // TODO: disable AP or ILS when outside localizer capture radials
-    // if(angle_to_aircraft > 30 || angle_to_aircraft < -30) {
-    //     AP = false;
-    //     // ILS = false;
-    // }
+    new Float:angle_to_aircraft = localiseHeadingAngle(
+        GetAbsoluteAngle(GetAngleToPoint(
+            AIRSTRIP_X, AIRSTRIP_Y, x, y
+        ) - AIRSTRIP_H));
 
-    new Float:course_target_heading = 0.0;
-    new Float:course_target_altitude = 0.0;
+    new Float:target_heading = TargetHeading;
+    new Float:target_altitude = TargetAlt;
 
-    if(distance_to_course > AIRCRAFT_PROCEDURE_RADIUS) {
-        if(angle_to_aircraft < 0.0) {
-            TargetHeading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) - 45.0);
+    new bool:captured_localiser = false;
+    new bool:captured_glideslope = false;
+    if(ILS) {
+        new
+            Float:beacon_x = AIRSTRIP_X,
+            Float:beacon_y = AIRSTRIP_Y;
+        GetXYFromAngle(beacon_x, beacon_y, AIRSTRIP_H, 1000.0);
+
+        if(angle_to_aircraft > 30) {
+            captured_localiser = false;
+            ILS = false;
         } else {
-            TargetHeading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) + 45.0);
+            captured_localiser = true;
         }
-    } else {
-        course_target_heading = GetHeadingForWaypointCourse(
-            x, y,
-            AIRSTRIP_X,
-            AIRSTRIP_Y,
-            GetAbsoluteAngle(AIRSTRIP_H - 180.0),
-            AIRCRAFT_PROCEDURE_RADIUS
-        );
-        course_target_altitude = 3.28084 * (AIRSTRIP_Z + GetAltitudeForILS(
-            GetDistance3D(
+
+        new Float:course_target_heading = 0.0;
+        new Float:course_target_altitude = 0.0;
+
+        if(distance_to_course > AIRCRAFT_PROCEDURE_RADIUS) {
+            if(angle_to_aircraft < 0.0) {
+                TargetHeading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) - 45.0);
+            } else {
+                TargetHeading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) + 45.0);
+            }
+        } else {
+            course_target_heading = GetHeadingForWaypointCourse(
+                x, y,
                 AIRSTRIP_X,
                 AIRSTRIP_Y,
-                AIRSTRIP_Z,
-                x, y, z
-            )));
-    }
+                GetAbsoluteAngle(AIRSTRIP_H - 180.0),
+                AIRCRAFT_PROCEDURE_RADIUS
+            );
+            course_target_altitude = 3.28084 *
+                (AIRSTRIP_Z + GetAltitudeForILS(distance_to_waypoint));
+            target_altitude = course_target_altitude;
+            captured_glideslope = true;
+        }
 
-    if(AP) {
-        TargetHeading = course_target_heading;
-        TargetAlt = course_target_altitude;
+        target_heading = course_target_heading;
     }
 
     // in order to avoid any complications and additional comparison branches
     // regarding angles, the target heading is used to calculate an offset from
     // the heading. This number will always be in the range -180..180 which
     // means all comparisons are done in relative terms rather than abstract.
-    new Float:target_heading_offset = localiseHeadingAngle(GetAbsoluteAngle(heading - TargetHeading));
+    new Float:target_heading_offset = localiseHeadingAngle(GetAbsoluteAngle(heading - target_heading));
 
     // Altitude is measured in feet.
     new Float:altitude = GetAltitudeInFeet(z);
@@ -218,7 +249,7 @@ public OnPlayerUpdate(playerid) {
         roll,
 
         target_heading_offset,
-        TargetAlt,
+        target_altitude,
 
         PITCH_CAPTURE_WINDOW,
         HEADING_CAPTURE_WINDOW,
@@ -261,6 +292,49 @@ public OnPlayerUpdate(playerid) {
             target_yaw_velocity + (yaw_turbulence * TurbulenceMultiplier));
     }
 
+    static
+        txt_dist_bearing[64],
+        txt_altitude[32],
+        txt_glideslope[7],
+        txt_autopilot[7],
+        txt_loc_hea[16],
+        txt_flp_leg[] = "(N/A)";
+    
+    new Float:course_target_bearing = TargetHeading;
+    if(ILS) {
+        course_target_bearing = AIRSTRIP_H;
+    }
+
+    GeneratePFDStrings(
+        distance_to_waypoint / 1852, // metres to nautical miles
+        course_target_bearing,
+        TargetAlt,
+        AP,
+        captured_glideslope,
+        captured_localiser,
+        AP && !ILS,
+
+        txt_dist_bearing,
+        txt_altitude,
+        txt_glideslope,
+        txt_autopilot,
+        txt_loc_hea
+    );
+
+    PlayerTextDrawSetString(playerid, PFDInterface_DistBearing[playerid], txt_dist_bearing);
+    PlayerTextDrawSetString(playerid, PFDInterface_Altitude[playerid], txt_altitude);
+    PlayerTextDrawSetString(playerid, PFDInterface_Glideslope[playerid], txt_glideslope);
+    PlayerTextDrawSetString(playerid, PFDInterface_Autopilot[playerid], txt_autopilot);
+    PlayerTextDrawSetString(playerid, PFDInterface_LocHea[playerid], txt_loc_hea);
+    PlayerTextDrawSetString(playerid, PFDInterface_FlpLeg[playerid], txt_flp_leg);
+
+    PlayerTextDrawShow(playerid, PFDInterface_DistBearing[playerid]);
+    PlayerTextDrawShow(playerid, PFDInterface_Altitude[playerid]);
+    PlayerTextDrawShow(playerid, PFDInterface_Glideslope[playerid]);
+    PlayerTextDrawShow(playerid, PFDInterface_Autopilot[playerid]);
+    PlayerTextDrawShow(playerid, PFDInterface_LocHea[playerid]);
+    PlayerTextDrawShow(playerid, PFDInterface_FlpLeg[playerid]);
+
     new str[1024];
     format(str, sizeof str,
         "attitude_progress: %f~n~\
@@ -278,8 +352,6 @@ public OnPlayerUpdate(playerid) {
         ~n~\
         distance_to_course: %f~n~\
         angle_to_aircraft: %f~n~\
-        course_target_heading: %f~n~\
-        course_target_altitude: %f~n~\
         ~n~\
         air_speed: %f~n~\
         ground_speed: %f~n~\
@@ -308,8 +380,6 @@ public OnPlayerUpdate(playerid) {
 
         distance_to_course,
         angle_to_aircraft,
-        course_target_heading,
-        course_target_altitude,
 
         air_speed,
         ground_speed,
@@ -351,14 +421,12 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys) {
 // Commands
 // -
 
-CMD:althold(playerid, params[]) {
-    new target = strval(params[10]);
-
-    new str[128];
-    format(str, sizeof str, "Target altitude: %dft", target);
+CMD:ils(playerid, params[]) {
+    ILS = !ILS;
+    new str[14];
+    format(str, sizeof str, "ILS Approach mode: %d", ILS);
     SendClientMessage(playerid, 0xFFFFFFFF, str);
-
-    TargetAlt = target;
+    return 1;
 }
 
 CMD:grav(playerid, params[]) {
@@ -384,7 +452,10 @@ CMD:w(playerid, params[]) {
 }
 
 CMD:targetalt(playerid, params[]) {
-    sscanf(params, "d", TargetAlt);
+    sscanf(params, "f", TargetAlt);
+    new str[128];
+    format(str, sizeof str, "Target altitude: %fft", TargetAlt);
+    SendClientMessage(playerid, 0xFFFFFFFF, str);
     return 1;
 }
 
