@@ -206,9 +206,9 @@ public OnPlayerUpdate(playerid) {
 
         if(distance_to_course > AIRCRAFT_PROCEDURE_RADIUS) {
             if(angle_to_aircraft < 0.0) {
-                TargetHeading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) - 45.0);
+                target_heading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) - 45.0);
             } else {
-                TargetHeading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) + 45.0);
+                target_heading = GetAbsoluteAngle((AIRSTRIP_H - 180.0) + 45.0);
             }
         } else {
             course_target_heading = GetHeadingForWaypointCourse(
